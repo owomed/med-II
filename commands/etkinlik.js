@@ -16,6 +16,8 @@ module.exports = {
             return message.reply('`Bu komutu kullanma yetkiniz bulunmamaktadır.`');
         }
 
+         await message.delete().catch(() => {}); // Hata olması durumunda crash olmaması için
+
         // Rolü etiketleyen mesaj gönderme
         message.channel.send(`<@&${mentionRoleID}>`);
     },

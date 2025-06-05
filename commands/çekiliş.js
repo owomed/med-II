@@ -17,7 +17,10 @@ module.exports = {
             return message.reply('`Bu komut bu kanalda kullanılamaz.`');
         }
 
-        // Etiketlenecek rolü etiketleyen mesaj gönderin
+        // Komut mesajını sil
+        await message.delete().catch(() => {}); // Hata olması durumunda crash olmaması için
+
+        // Etiketleme mesajını gönder
         return message.channel.send(`<@&${mentionRoleID}>`);
     },
 };

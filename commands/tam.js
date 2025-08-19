@@ -1,58 +1,99 @@
-const { MessageEmbed } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 
 module.exports = {
-  name: "tb",
-  description: "Kullanıcıya Tam Bilet rolü verir/alır.",
-  args: true,
-  usage: "@kullanıcı",
-  async execute(client, message, args) {
-    if (!message.mentions.users.size) {
-      return message.reply("Bir kullanıcı etiketlemelisin.");
-    }
+    // Prefix komutu için tanımlamalar
+    name: "tb",
+    description: "Kullanıcıya Tam Bilet rolü verir/alır.",
+    args: true,
+    usage: "@kullanıcı",
 
-    const allowedRoleID = "1238576058119487539";
-    const roleToCheck = "1238185123581788170"; // Kullanıcının sahip olup olmadığını kontrol edeceğimiz rol ID'si
-    const mentionedUser = message.mentions.members.first(); // Etiketlenen kullanıcı
-    const guild = message.guild; // Mesajın atıldığı sunucu
-    const logChannelID = "1237313546354823218"; // Log mesajının gönderileceği kanal ID'si
-    const logChannel = guild.channels.cache.get(logChannelID);
+    // Slash komutu için özel veri yapısı
+    data: new SlashCommandBuilder()
+        .setName('tam-bilet')
+        .setDescription('Belirtilen kullanıcıya Tam Bilet rolü verir veya alır.')
+        .addUserOption(option =>
+            option.setName('kullanıcı')
+                .setDescription('Rolün verileceği veya alınacağı kullanıcı.')
+                .setRequired(true)), // Zorunlu kullanıcı argümanı
 
-    if (!message.member || !message.member.roles.cache.has(allowedRoleID)) {
-      return message.reply("Bu komutu kullanma yetkiniz bulunmamaktadır.");
-    }
+    // Prefix komutu için ana işlev (messageCreate)
+    async execute(client, message, args) {
+        const targetMember = message.mentions.members.first();
+        if (!targetMember) {
+            return message.reply("`Bir kullanıcı etiketlemelisin.`");
+        }
+        await this.runCommand(client, message, message.member, targetMember);
+    },
 
-    if (!mentionedUser) {
-      return message.reply("Belirtilen kullanıcı bulunamadı.");
-    }
+    // Slash komutu için ana işlev (interactionCreate)
+    async executeSlash(client, interaction) {
+        await interaction.deferReply({ ephemeral: true });
+        const targetMember = interaction.options.getMember('kullanıcı');
+        if (!targetMember) {
+            return interaction.editReply({ content: '`Belirtilen kullanıcı bulunamadı.`', ephemeral: true });
+        }
+        await this.runCommand(client, interaction, interaction.member, targetMember);
+    },
 
-    const role = guild.roles.cache.get(roleToCheck);
+    // Prefix ve Slash komutlarında ortak çalışacak ana mantık
+    async runCommand(client, interactionOrMessage, authorMember, targetMember) {
+        const allowedRoleID = "1238576058119487539";
+        const roleToCheck = "1238185123581788170"; // Kullanıcının sahip olup olmadığını kontrol edeceğimiz rol ID'si
+        const logChannelID = "1237313546354823218";
+        const guild = authorMember.guild;
+        const logChannel = guild.channels.cache.get(logChannelID);
 
-    if (!role) {
-      return message.reply(`ID'si ${roleToCheck} olan rol bulunamadı.`);
-    }
+        // Yetki kontrolü
+        if (!authorMember || !authorMember.roles.cache.has(allowedRoleID)) {
+            const replyContent = "`Bu komutu kullanma yetkiniz bulunmamaktadır.`";
+            if (interactionOrMessage.replied || interactionOrMessage.deferred) {
+                return await interactionOrMessage.editReply({ content: replyContent, ephemeral: true });
+            }
+            return await interactionOrMessage.reply(replyContent);
+        }
 
-    let embed = new MessageEmbed()
-      .setAuthor(message.author.tag, message.author.displayAvatarURL())
-      .setColor('Random');
+        const role = guild.roles.cache.get(roleToCheck);
 
-    if (mentionedUser.roles.cache.has(roleToCheck)) {
-      // Kullanıcının rolü varsa al
-      await mentionedUser.roles.remove(roleToCheck);
-      embed.setDescription(`${mentionedUser} adlı kullanıcıdan ${role} rolü alındı. <a:med_verify:1235237448926236763>`);
-      message.channel.send(embed);
+        if (!role) {
+            const replyContent = `\`ID'si ${roleToCheck} olan rol bulunamadı.\``;
+            if (interactionOrMessage.replied || interactionOrMessage.deferred) {
+                return await interactionOrMessage.editReply({ content: replyContent, ephemeral: true });
+            }
+            return await interactionOrMessage.reply(replyContent);
+        }
 
-      if (logChannel) {
-        logChannel.send(embed);
-      }
-    } else {
-      // Kullanıcının rolü yoksa ver
-      await mentionedUser.roles.add(roleToCheck);
-      embed.setDescription(`${mentionedUser} adlı kullanıcıya ${role} rolü verildi. <a:med_verify:1235237448926236763>`);
-      message.channel.send(embed);
+        const embed = new EmbedBuilder()
+            .setAuthor({
+                name: authorMember.user.tag,
+                iconURL: authorMember.user.displayAvatarURL()
+            })
+            .setColor('Random');
 
-      if (logChannel) {
-        logChannel.send(embed);
-      }
-    }
-  },
+        let replyMessage;
+
+        if (targetMember.roles.cache.has(roleToCheck)) {
+            // Kullanıcının rolü varsa al
+            await targetMember.roles.remove(roleToCheck);
+            replyMessage = `${targetMember} adlı kullanıcıdan ${role} rolü alındı.`;
+            embed.setDescription(`${targetMember} adlı kullanıcıdan ${role} rolü alındı. <a:med_verify:1235237448926236763>`);
+        } else {
+            // Kullanıcının rolü yoksa ver
+            await targetMember.roles.add(roleToCheck);
+            replyMessage = `${targetMember} adlı kullanıcıya ${role} rolü verildi.`;
+            embed.setDescription(`${targetMember} adlı kullanıcıya ${role} rolü verildi. <a:med_verify:1235237448926236763>`);
+        }
+
+        // Genel kanala yanıt gönderme
+        await interactionOrMessage.channel.send({ embeds: [embed] });
+
+        // Slash komutunun geçici yanıtını silme
+        if (interactionOrMessage.replied || interactionOrMessage.deferred) {
+            await interactionOrMessage.deleteReply().catch(() => {});
+        }
+
+        // Log kanalına embed gönderme
+        if (logChannel) {
+            await logChannel.send({ embeds: [embed] });
+        }
+    },
 };

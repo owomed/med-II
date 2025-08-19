@@ -1,150 +1,151 @@
-const { Client, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, ActivityType } = require('discord.js');
 const fs = require('fs');
-const db = require("quick.db");
-const { prefix } = require('./Settings/config.json');
-require('dotenv').config();
-require('./stayInVoice.js');
+const path = require('path');
 const express = require('express');
+require('dotenv').config();
+
+// Config dosyasını yükleyin
+const config = require('./Settings/config.json');
 
 // Discord botu için client ve ayarları
 const client = new Client({
-  presence: {
-    status: "idle",
-    activity: { name: "MED Ⅱ", type: "PLAYING" }
-  }
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildVoiceStates,
+    ],
 });
-client.commands = new Collection();
 
-// Komut dosyalarını yükleyin
-const commandFiles = fs.readdirSync('./commands/').filter(file => file.endsWith('.js'));
-for (const file of commandFiles) {
-  const command = require(`./commands/${file}`);
-  client.commands.set(command.name, command);
+client.commands = new Collection();
+client.slashCommands = new Collection();
+client.cooldowns = new Collection();
+
+// Komut dosyalarını klasörlerden yükleyin
+const foldersPath = path.join(__dirname, 'commands');
+const commandFolders = fs.readdirSync(foldersPath);
+
+for (const folder of commandFolders) {
+    const commandsPath = path.join(foldersPath, folder);
+    const stat = fs.statSync(commandsPath); // Dosya mı, klasör mü kontrolü
+
+    if (stat.isDirectory()) { // Eğer klasörse, içindeki dosyaları oku
+        const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+        for (const file of commandFiles) {
+            const filePath = path.join(commandsPath, file);
+            const command = require(filePath);
+            if ('data' in command || 'execute' in command) {
+                client.commands.set(command.name, command);
+                if (command.data) {
+                    client.slashCommands.set(command.data.name, command);
+                }
+            } else {
+                console.log(`[UYARI] ${filePath} dosyasında 'data' veya 'execute' eksik.`);
+            }
+        }
+    } else if (stat.isFile() && folder.endsWith('.js')) { // Eğer doğrudan dosyaysa
+        const command = require(commandsPath);
+        if ('data' in command || 'execute' in command) {
+            client.commands.set(command.name, command);
+            if (command.data) {
+                client.slashCommands.set(command.data.name, command);
+            }
+        } else {
+            console.log(`[UYARI] ${commandsPath} dosyasında 'data' veya 'execute' eksik.`);
+        }
+    }
 }
 
+// Bot hazır olduğunda yapılacaklar
+client.once('ready', async () => {
+    console.log(`Bot hazır: ${client.user.tag}`);
 
-// Mesaj olayını işleyin
-client.on('message', async message => {
-  if (!message.content.startsWith(prefix) || message.author.bot || message.channel.type === 'dm') return;
+    // Özel aktiviteyi ayarla
+    client.user.setPresence({
+        status: 'idle',
+        activities: [{
+            name: "OwO 💚 MED ile ilgileniyor",
+            type: ActivityType.Custom
+        }]
+    });
 
-  const args = message.content.slice(prefix.length).split(/ +/);
-  const commandName = args.shift().toLowerCase();
-  const command = client.commands.get(commandName) || client.commands.find(x => x.aliases && x.aliases.includes(commandName));
+    // Ses kanalına katılma işlevi
+    const voiceChannelId = '1235643294973956158'; // Ses kanalının ID'si
+    const guild = client.guilds.cache.get('1237313545620983808'); // Sunucu ID'si
+    if (guild) {
+        const voiceChannel = guild.channels.cache.get(voiceChannelId);
+        if (voiceChannel && voiceChannel.isVoice()) {
+            try {
+                const { joinVoiceChannel } = require('@discordjs/voice');
+                joinVoiceChannel({
+                    channelId: voiceChannel.id,
+                    guildId: voiceChannel.guild.id,
+                    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+                });
+                console.log('Ses kanalına başarıyla katıldı.');
+            } catch (error) {
+                console.error('Ses kanalına katılırken bir hata oluştu:', error);
+            }
+        }
+    }
 
-  if (!command) return;
-
-  try {
-    await command.execute(client, message, args);
-  } catch (error) {
-    console.error('Komut çalıştırma hatası:', error);
-    message.reply('Komut çalıştırılırken bir hata oluştu.');
-  }
+    // Zamanlı rol kontrolü
+    const çyasakCommand = client.commands.get('çyasak');
+    if (çyasakCommand && çyasakCommand.startupCheck) {
+        await çyasakCommand.startupCheck(client);
+    }
 });
 
-// Tarih formatı ve hesaplama fonksiyonları
-Date.prototype.toTurkishFormatDate = function (format) {
-  let date = this,
-    day = date.getDate(),
-    weekDay = date.getDay(),
-    month = date.getMonth(),
-    year = date.getFullYear(),
-    hours = date.getHours(),
-    minutes = date.getMinutes(),
-    seconds = date.getSeconds();
+// Slash komutlarını dinle
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isChatInputCommand()) return;
 
-  let monthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-  let dayNames = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
+    const command = client.slashCommands.get(interaction.commandName);
+    if (!command) {
+        console.error(`Komut bulunamadı: ${interaction.commandName}`);
+        return;
+    }
 
-  if (!format) {
-    format = "dd MM yyyy | hh:ii:ss";
-  }
-  format = format.replace("mm", month.toString().padStart(2, "0"));
-  format = format.replace("MM", monthNames[month]);
-
-  if (format.indexOf("yyyy") > -1) {
-    format = format.replace("yyyy", year.toString());
-  } else if (format.indexOf("yy") > -1) {
-    format = format.replace("yy", year.toString().substr(2, 2));
-  }
-
-  format = format.replace("dd", day.toString().padStart(2, "0"));
-  format = format.replace("DD", dayNames[weekDay]);
-
-  if (format.indexOf("HH") > -1) format = format.replace("HH", hours.toString().replace(/^(\d)$/, '0$1'));
-  if (format.indexOf("hh") > -1) {
-    if (hours > 12) hours -= 12;
-    if (hours === 0) hours = 12;
-    format = format.replace("hh", hours.toString().replace(/^(\d)$/, '0$1'));
-  }
-  if (format.indexOf("ii") > -1) format = format.replace("ii", minutes.toString().replace(/^(\d)$/, '0$1'));
-  if (format.indexOf("ss") > -1) format = format.replace("ss", seconds.toString().replace(/^(\d)$/, '0$1'));
-  return format;
-};
-
-client.tarihHesapla = (date) => {
-  const startedAt = Date.parse(date);
-  var msecs = Math.abs(new Date() - startedAt);
-
-  const years = Math.floor(msecs / (1000 * 60 * 60 * 24 * 365));
-  msecs -= years * 1000 * 60 * 60 * 24 * 365;
-  const months = Math.floor(msecs / (1000 * 60 * 60 * 24 * 30));
-  msecs -= months * 1000 * 60 * 60 * 24 * 30;
-  const weeks = Math.floor(msecs / (1000 * 60 * 60 * 24 * 7));
-  msecs -= weeks * 1000 * 60 * 60 * 24 * 7;
-  const days = Math.floor(msecs / (1000 * 60 * 60 * 24));
-  msecs -= days * 1000 * 60 * 60 * 24;
-  const hours = Math.floor(msecs / (1000 * 60 * 60));
-  msecs -= hours * 1000 * 60 * 60;
-  const mins = Math.floor((msecs / (1000 * 60)));
-  msecs -= mins * 1000 * 60;
-  const secs = Math.floor(msecs / 1000);
-  msecs -= secs * 1000;
-
-  var string = "";
-  if (years > 0) string += `${years} yıl ${months} ay`;
-  else if (months > 0) string += `${months} ay ${weeks > 0 ? weeks + " hafta" : ""}`;
-  else if (weeks > 0) string += `${weeks} hafta ${days > 0 ? days + " gün" : ""}`;
-  else if (days > 0) string += `${days} gün ${hours > 0 ? hours + " saat" : ""}`;
-  else if (hours > 0) string += `${hours} saat ${mins > 0 ? mins + " dakika" : ""}`;
-  else if (mins > 0) string += `${mins} dakika ${secs > 0 ? secs + " saniye" : ""}`;
-  else if (secs > 0) string += `${secs} saniye`;
-  else string += `saniyeler`;
-
-  string = string.trim();
-  return `\`${string} önce\``;
-};
-
-// Durumları ayarla
-const statuses = [
-  { name: 'MED Ⅱ', type: 'PLAYING' },
-  { name: 'MED 💚 hicckimse', type: 'LISTENING' },
-  { name: 'hicckimse 💛 MED', type: 'LISTENING' },
-  { name: 'MED ❤️ hicckimse', type: 'LISTENING' },
-  { name: 'hicckimse 🤍 MED', type: 'LISTENING' },
-  { name: 'MED 🤎 hicckimse', type: 'LISTENING' },
-  { name: 'hicckimse 💜 MED', type: 'LISTENING' },
-  { name: 'MED 🩵 hicckimse', type: 'LISTENING' },
-  { name: 'hicckimse 💙 MED', type: 'LISTENING' }
-];
-let statusIndex = 0;
-
-client.on('ready', () => {
-  console.log(`Bot hazır: ${client.user.tag}`);
-  
-  setInterval(() => {
-    statusIndex = (statusIndex + 1) % statuses.length;
-    client.user.setPresence({ activity: { name: statuses[statusIndex].name, type: statuses[statusIndex].type }, status: 'idle' });
-  }, 10000);
+    try {
+        await command.executeSlash(client, interaction);
+    } catch (error) {
+        console.error(error);
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content: 'Bu komutu çalıştırırken bir hata oluştu!', ephemeral: true });
+        } else {
+            await interaction.reply({ content: 'Bu komutu çalıştırırken bir hata oluştu!', ephemeral: true });
+        }
+    }
 });
 
-// Express sunucusu için ayarlar
+// Prefix komutlarını dinle
+client.on('messageCreate', async message => {
+    if (!message.content.startsWith(config.prefix) || message.author.bot) return;
+
+    const args = message.content.slice(config.prefix.length).trim().split(/ +/);
+    const commandName = args.shift().toLowerCase();
+
+    const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+
+    if (!command) return;
+
+    try {
+        await command.execute(client, message, args);
+    } catch (error) {
+        console.error('Komut çalıştırma hatası:', error);
+        message.reply('Komut çalıştırılırken bir hata oluştu.');
+    }
+});
+
+// Express sunucusu
 const app = express();
 const port = 3000;
 
 app.get('/', (req, res) => res.status(200).send('Çalışma Süresi Botuna Göre Güç'));
 
 app.listen(port, () => {
-  console.log(`Express sunucusu port ${port} üzerinde çalışıyor`);
+    console.log(`Express sunucusu port ${port} üzerinde çalışıyor.`);
 });
 
 client.login(process.env.TOKEN);

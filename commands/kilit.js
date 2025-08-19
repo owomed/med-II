@@ -1,73 +1,115 @@
-const Discord = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
 
 module.exports = {
-    name: 'kilit',
-    description: 'Belirli kanalları kilitler veya kilidi açar.',
-    async execute(client, message, args) {
-        const çekilişChannelIDs = ['1238416744050065448'];
-        const etkinlikChannelIDs = ['1238045899360309289', '1277593114269454396', '1277593211363262546', '1277593298047078460'];
+    // Prefix komutu için tanımlamalar
+    name: 'kilit',
+    description: 'Belirli kanalları kilitler veya kilidi açar.',
+
+    // Slash komutu için özel veri yapısı
+    data: new SlashCommandBuilder()
+        .setName('kilit')
+        .setDescription('Bulunduğunuz kanalı kilitler veya kilidini açar.')
+        .setDMPermission(false), // Sadece sunucularda kullanılabilir
+
+    // Prefix komutu için ana işlev (messageCreate)
+    async execute(client, message) {
+        // Fonksiyonel kodun tamamı burada
+        await this.runCommand(client, message.channel, message.member, message);
+    },
+
+    // Slash komutu için ana işlev (interactionCreate)
+    async executeSlash(client, interaction) {
+        // Yanıt verilirken etkileşim kullanıldığı için interaction.reply() gerekli
+        await interaction.deferReply({ ephemeral: true });
+        await this.runCommand(client, interaction.channel, interaction.member, interaction);
+    },
+
+    // Prefix ve Slash komutlarında ortak çalışacak ana mantık
+    async runCommand(client, currentChannel, member, interactionOrMessage) {
+        const çekilişChannelIDs = ['1238416744050065448'];
+        const etkinlikChannelIDs = ['1238045899360309289', '1277593114269454396', '1277593211363262546', '1277593298047078460'];
         const ticketBildirimChannelID = '1403041577508540539';
-        const etkinlikRole = ['1238598537948954824'];
-        const çekilişRole = ['1238598132745506856'];
+        const etkinlikRole = ['1238598537948954824'];
+        const çekilişRole = ['1238598132745506856'];
         const ticketSellerRole = ['1403046566796984342'];
-        const logChannelId = '833691259222360165';
+        const logChannelId = '833691259222360165';
 
-        const currentChannel = message.channel;
-        const everyoneRole = message.guild.roles.everyone;
+        // Kanal yetki kontrolü için izin verilen rollerin listesi
+        let hasPermission = false;
+        if (etkinlikChannelIDs.includes(currentChannel.id)) {
+            hasPermission = member.roles.cache.some(role => etkinlikRole.includes(role.id));
+        } else if (çekilişChannelIDs.includes(currentChannel.id)) {
+            hasPermission = member.roles.cache.some(role => çekilişRole.includes(role.id));
+        } else if (currentChannel.id === ticketBildirimChannelID) {
+            hasPermission = member.roles.cache.some(role => ticketSellerRole.includes(role.id));
+        } else {
+            const replyContent = '`Bu komut bu kanalda kullanılamaz.`';
+            if (interactionOrMessage.replied || interactionOrMessage.deferred) {
+                return await interactionOrMessage.editReply({ content: replyContent, ephemeral: true });
+            }
+            return await interactionOrMessage.reply(replyContent);
+        }
 
-        // Etkinlik kanalıysa sadece etkinlik rolü kullanabilir
-        if (etkinlikChannelIDs.includes(currentChannel.id)) {
-            const hasPermission = message.member.roles.cache.some(role => etkinlikRole.includes(role.id));
-            if (!hasPermission) {
-                return message.reply('`Bu komutu kullanma yetkiniz bulunmamaktadır.`');
-            }
-        }
-        // Çekiliş kanalıysa sadece çekiliş rolü kullanabilir
-        else if (çekilişChannelIDs.includes(currentChannel.id)) {
-            const hasPermission = message.member.roles.cache.some(role => çekilişRole.includes(role.id));
-            if (!hasPermission) {
-                return message.reply('`Bu komutu kullanma yetkiniz bulunmamaktadır.`');
-            }
-        }
-        // Ticket bildirim kanalıysa sadece ticket seller rolü kullanabilir
-        else if (currentChannel.id === ticketBildirimChannelID) {
-            const hasPermission = message.member.roles.cache.some(role => ticketSellerRole.includes(role.id));
-            if (!hasPermission) {
-                return message.reply('`Bu komutu kullanma yetkiniz bulunmamaktadır.`');
+        if (!hasPermission) {
+            const replyContent = '`Bu komutu kullanma yetkiniz bulunmamaktadır.`';
+            if (interactionOrMessage.replied || interactionOrMessage.deferred) {
+                return await interactionOrMessage.editReply({ content: replyContent, ephemeral: true });
+            }
+            return await interactionOrMessage.reply(replyContent);
+        }
+
+        const everyoneRole = currentChannel.guild.roles.everyone;
+        const isLocked = !currentChannel.permissionsFor(everyoneRole).has(PermissionsBitField.Flags.SendMessages);
+
+        try {
+            if (isLocked) {
+                await currentChannel.permissionOverwrites.edit(everyoneRole, {
+                    SendMessages: true,
+                });
+
+                const logChannel = member.guild.channels.cache.get(logChannelId);
+                if (logChannel) {
+                    await logChannel.send(`${currentChannel} kanalının kilidi açıldı.`);
+                }
+                
+                // Başarılı yanıt
+                const replyContent = `${currentChannel} kanalı başarıyla açıldı.`;
+                await currentChannel.send(replyContent);
+                // Prefix komutuysa emoji ile tepki ver
+                if (interactionOrMessage.type !== 2) {
+                    await interactionOrMessage.react('1368176380994523197');
+                } else {
+                    await interactionOrMessage.deleteReply();
+                }
+
+            } else {
+                await currentChannel.permissionOverwrites.edit(everyoneRole, {
+                    SendMessages: false,
+                });
+
+                const logChannel = member.guild.channels.cache.get(logChannelId);
+                if (logChannel) {
+                    await logChannel.send(`${currentChannel} kanalı kilitlendi.`);
+                }
+                
+                // Başarılı yanıt
+                const replyContent = `${currentChannel} kanalı başarıyla kilitlendi.`;
+                await currentChannel.send(replyContent);
+                // Prefix komutuysa emoji ile tepki ver
+                if (interactionOrMessage.type !== 2) {
+                    await interactionOrMessage.react('1368176445804777536');
+                } else {
+                    await interactionOrMessage.deleteReply();
+                }
+            }
+        } catch (error) {
+            console.error('Kanal kilitleme/kilidi açma hatası:', error);
+            const replyContent = '`Kanal kilitlenirken veya kilidi açılırken bir hata oluştu.`';
+            if (interactionOrMessage.replied || interactionOrMessage.deferred) {
+                await interactionOrMessage.editReply({ content: replyContent, ephemeral: true });
+            } else {
+                await interactionOrMessage.reply(replyContent);
             }
         }
-        // Diğer kanallarda kullanılamaz
-        else {
-            return message.reply('`Bu komut bu kanalda kullanılamaz.`');
-        }
-
-        const isLocked = !currentChannel.permissionsFor(everyoneRole).has('SEND_MESSAGES');
-
-        try {
-            if (isLocked) {
-                await currentChannel.updateOverwrite(everyoneRole, { SEND_MESSAGES: true });
-
-                message.channel.send(`${currentChannel} kanalı başarıyla açıldı.`);
-                message.react('<:med_unlocked:1368176380994523197>');
-
-                const logChannel = message.guild.channels.cache.get(logChannelId);
-                if (logChannel) {
-                    logChannel.send(`${currentChannel} kanalının kiliti açıldı.`);
-                }
-            } else {
-                await currentChannel.updateOverwrite(everyoneRole, { SEND_MESSAGES: false });
-
-                message.channel.send(`${currentChannel} kanalı başarıyla kilitlendi.`);
-                message.react('<:med_lock:1368176445804777536>');
-
-                const logChannel = message.guild.channels.cache.get(logChannelId);
-                if (logChannel) {
-                    logChannel.send(`${currentChannel} kanalı kilitlendi.`);
-                }
-            }
-        } catch (error) {
-            console.error('Kanal kilitleme/kilidi açma hatası:', error);
-            message.reply('`Kanal kilitlenirken veya kilidi açılırken bir hata oluştu.`');
-        }
-    },
+    }
 };

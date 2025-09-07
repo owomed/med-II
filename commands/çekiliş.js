@@ -28,7 +28,7 @@ module.exports = {
     async runCommand(channel, member, interactionOrMessage) {
         const allowedRoleIDs = ['1238598132745506856', '1188422639845396500']; // Komutu kullanabilecek rollerin ID'leri
         const mentionRoleID = '1238180308608749689'; // Etiketlenecek rol ID'si
-        const allowedChannels = ['1238418256490926100', '1238045966708248646', '1238416293892194416', '1399417189756309514']; // İzin verilen kanal ID'leri
+        const allowedChannels = ['1238418256490926100', '1238045966708248646', '1238416293892194416', '1399417189756309514', '1270279475338154035']; // İzin verilen kanal ID'leri
 
         // Kanal ve kullanıcı yetki kontrolü
         if (!allowedChannels.includes(channel.id)) {

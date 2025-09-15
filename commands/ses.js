@@ -3,7 +3,7 @@ const { joinVoiceChannel } = require('@discordjs/voice');
 
 module.exports = {
     // Prefix komutu için tanımlamalar
-    name: "ses",
+    name: "2ses",
     aliases: ['sese-gir', 'join-voice'],
     description: "Botu belirli bir ses kanalına bağlar.",
     usage: "<kanal ID'si>",

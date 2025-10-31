@@ -65,7 +65,7 @@ client.once('ready', async () => {
     client.user.setPresence({
         status: 'idle',
         activities: [{
-            name: "OwO 💚 MED ile ilgileniyor",
+            name: "OwO MED :( ",
             type: ActivityType.Custom
         }]
     });
